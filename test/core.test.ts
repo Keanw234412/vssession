@@ -9,6 +9,8 @@ import { encodeProjectDir, parseTranscript, splitCompleteRecords } from '../src/
 import { assessEligibility, prepareSession, readBounded, SourceTooLargeError } from '../src/core/publish';
 import { OrgStore, OrgStoreError, canonicalJson, sha256, type SessionRevision } from '../src/core/orgStore';
 import { autoConsentValid, CONTENT_SCHEMA, type WorkspaceLink } from '../src/core/consent';
+import { parseRegValue } from '../src/core/regValue';
+import { GitSync, runGit } from '../src/core/gitSync';
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'vssession-test-'));
 const line = (o: unknown) => JSON.stringify(o) + '\n';
@@ -521,5 +523,113 @@ describe('auto-share consent', () => {
     assert.equal(autoConsentValid({ ...ok, projectId: 'p2' }), false, 'relinked project');
     assert.equal(autoConsentValid({ ...ok, root: 'R2' }), false, 'moved folder');
     assert.equal(autoConsentValid(ok, CONTENT_SCHEMA + 1), false, 'content types changed');
+  });
+});
+
+describe('registry environment parsing', () => {
+  it('reads REG_SZ / REG_EXPAND_SZ data and ignores other names', () => {
+    const out = '\r\nHKEY_CURRENT_USER\Environment\r\n    ELECTRON_RUN_AS_NODE    REG_SZ    1\r\n    Path    REG_EXPAND_SZ    %USERPROFILE%\bin\r\n';
+    assert.equal(parseRegValue(out, 'ELECTRON_RUN_AS_NODE'), '1');
+    assert.equal(parseRegValue(out, 'path'), '%USERPROFILE%\bin');
+    assert.equal(parseRegValue(out, 'NODE_OPTIONS'), undefined);
+    assert.equal(parseRegValue('ERROR: The system was unable to find the specified registry key or value.', 'NODE_OPTIONS'), undefined);
+  });
+});
+
+describe('phone and WhatsApp id redaction', () => {
+  const r = new Redactor({});
+  it('redacts WhatsApp JIDs, +country numbers and Indonesian mobile numbers', () => {
+    const out = r.redact('from 6281234567890@s.whatsapp.net, call +62 812-3456-7890 or 081234567890 / 6281298765432, group 120363000000000001@g.us, device tg:123456789');
+    assert.match(out, /\[redacted:tg-id\]/);
+    assert.ok(!/\d{9,}/.test(out.replace(/\[redacted:[a-z-]+\]/g, '')), out);
+    assert.match(out, /\[redacted:wa-id\]/);
+    assert.match(out, /\[redacted:phone\]/);
+  });
+  it('leaves timestamps, ports, versions and ids alone', () => {
+    const s = 'ts 1763532000000 size 98811540 port 8080 v1.146.0 id 4618a9a4235431b1 year 2026 order 0800';
+    assert.equal(r.redact(s), s);
+  });
+  it('can be disabled', () => {
+    assert.equal(new Redactor({ redactPhones: false, redactEmails: false }).redact('+62 812 3456 7890'), '+62 812 3456 7890');
+  });
+});
+
+describe('git sync of the organization folder', () => {
+  const git = async (cwd: string, ...args: string[]) => {
+    const r = await runGit(args, cwd);
+    assert.equal(r.code, 0, `git ${args.join(' ')}: ${r.err}`);
+    return r.out;
+  };
+  const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'vss-git-'));
+  async function clone(remote: string, name: string): Promise<string> {
+    const dir = path.join(tmp(), name);
+    await git(os.tmpdir(), 'clone', '--quiet', remote, dir);
+    await git(dir, 'config', 'user.name', name);
+    await git(dir, 'config', 'user.email', `${name}@example.invalid`);
+    await git(dir, 'config', 'commit.gpgsign', 'false');
+    return dir;
+  }
+
+  it('refuses a folder inside a larger checkout and accepts the top level', async () => {
+    const dir = tmp();
+    await git(dir, 'init', '--quiet');
+    fs.mkdirSync(path.join(dir, 'org'));
+    const inner = await GitSync.detect(path.join(dir, 'org'));
+    assert.ok(!(inner instanceof GitSync) && /inside a larger git checkout/.test(inner.reason));
+    assert.ok((await GitSync.detect(dir)) instanceof GitSync);
+    const none = await GitSync.detect(tmp());
+    assert.ok(!(none instanceof GitSync));
+  });
+
+  it('two members publish concurrently and both see each other after sync', async () => {
+    const remote = path.join(tmp(), 'org.git');
+    await git(os.tmpdir(), 'init', '--quiet', '--bare', '--initial-branch=vssession', remote);
+    const a = await clone(remote, 'alice');
+    await git(a, 'checkout', '--quiet', '-b', 'vssession');
+    const store = OrgStore.create(a, 'Org');
+    const project = new OrgStore(a).createProject('P');
+    const sa = (await GitSync.detect(a)) as GitSync;
+    let r = await sa.commitAndPush('create org');
+    assert.ok(r.ok && r.changed, r.detail);
+    assert.ok(store);
+
+    const b = await clone(remote, 'bob');
+    const sb = (await GitSync.detect(b)) as GitSync;
+    assert.equal(new OrgStore(b).listProjects().length, 1);
+
+    // Both write without pulling first: the second push is rejected and retried after a rebase.
+    new OrgStore(a).upsertMember(project.projectId, 'aaaaaaaaaaaaaaaa', 'Alice');
+    new OrgStore(b).upsertMember(project.projectId, 'bbbbbbbbbbbbbbbb', 'Bob');
+    r = await sa.commitAndPush('alice joins');
+    assert.ok(r.ok, r.detail);
+    r = await sb.commitAndPush('bob joins');
+    assert.ok(r.ok, r.detail);
+    const pulled = await sa.pull();
+    assert.ok(pulled.ok && pulled.changed, pulled.detail);
+    for (const dir of [a, b]) {
+      assert.deepEqual(new OrgStore(dir).listMembers(project.projectId).map((m) => m.displayName).sort(), ['Alice', 'Bob']);
+    }
+    // Nothing new: no commit, no push.
+    r = await sb.commitAndPush('noop');
+    assert.ok(r.ok && !r.changed, r.detail);
+  });
+
+  it('sets the upstream branch on the first push', async () => {
+    const remote = path.join(tmp(), 'o.git');
+    await git(os.tmpdir(), 'init', '--quiet', '--bare', '--initial-branch=main', remote);
+    const a = await clone(remote, 'solo');
+    fs.writeFileSync(path.join(a, 'org-file.txt'), 'x');
+    const s = (await GitSync.detect(a)) as GitSync;
+    const r = await s.commitAndPush('first');
+    assert.ok(r.ok && r.changed, r.detail);
+    assert.equal(await git(a, 'rev-parse', '--abbrev-ref', '@{u}'), 'origin/main');
+  });
+});
+
+describe('owner id literals', () => {
+  it('are deduplicated so repeated owner records do not multiply the rules', () => {
+    const id = '11111111-2222-4333-8444-555555555555';
+    const r = new Redactor({ literals: Array(500).fill(id) });
+    assert.equal((r as unknown as { rules: unknown[] }).rules.length, new Redactor({ literals: [id] })['rules' as never]['length' as never]);
   });
 });

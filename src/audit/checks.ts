@@ -5,6 +5,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { FUSE_RISKS, readFusesFromFile } from '../core/fuses';
+import { parseRegValue } from '../core/regValue';
 import { claudeProjectsDir, findLongPaths, longPath, WINDOWS_MAX_PATH } from '../core/claudeSessions';
 
 export type Severity = 'high' | 'warning' | 'info' | 'ok';
@@ -44,6 +45,26 @@ function execFileText(cmd: string, args: string[], timeoutMs = 8000): Promise<{ 
       resolve({ code, out: String(stdout ?? '').trim() });
     });
   });
+}
+
+const ENV_KEYS: Array<{ key: string; where: string }> = [
+  { key: 'HKCU\\Environment', where: 'your user environment variables' },
+  { key: 'HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment', where: 'the system environment variables' },
+];
+
+/** Persistent (registry) environment variables on Windows; empty elsewhere. */
+async function readPersistentEnv(names: string[]): Promise<Array<{ name: string; value: string; where: string }>> {
+  if (process.platform !== 'win32') return [];
+  const hits: Array<{ name: string; value: string; where: string }> = [];
+  for (const { key, where } of ENV_KEYS) {
+    for (const name of names) {
+      const r = await execFileText('reg', ['query', key, '/v', name], 4000);
+      if (r.code !== 0) continue;
+      const value = parseRegValue(r.out, name);
+      if (value) hits.push({ name, value, where });
+    }
+  }
+  return hits;
 }
 
 async function sha256File(file: string): Promise<string | undefined> {
@@ -271,14 +292,18 @@ async function checkRuntime(): Promise<Finding[]> {
     }
   }
 
-  for (const v of ['NODE_OPTIONS', 'ELECTRON_RUN_AS_NODE']) {
-    if (process.env[v]) {
-      out.push({
-        id: `env:${v}`, title: `${v} is set in VS Code's environment`, category: 'security', severity: 'warning', confidence: 'observed',
-        detail: `${v}=${process.env[v]}\nCode.exe honours this variable (its fuse is enabled), so it can inject code into every Electron/Node process launched from this environment. Remove it from your user/system environment variables unless you set it deliberately.`,
-        action: { kind: 'guidance', label: 'Remove from environment variables' },
-      });
-    }
+  // VS Code itself starts the extension host with ELECTRON_RUN_AS_NODE=1, so process.env cannot tell a
+  // user-set value apart from VS Code's own. Only the persistent environment (registry on Windows) counts.
+  const persistentEnv = await readPersistentEnv(['NODE_OPTIONS', 'ELECTRON_RUN_AS_NODE']);
+  const envHits: Array<{ name: string; value: string; where: string }> = [];
+  if (process.env.NODE_OPTIONS) envHits.push({ name: 'NODE_OPTIONS', value: process.env.NODE_OPTIONS, where: "VS Code's environment" });
+  for (const p of persistentEnv) if (!envHits.some((h) => h.name === p.name)) envHits.push(p);
+  for (const v of envHits) {
+    out.push({
+      id: `env:${v.name}`, title: `${v.name} is set in ${v.where}`, category: 'security', severity: 'warning', confidence: 'observed',
+      detail: `${v.name}=${v.value}\nCode.exe honours this variable (its fuse is enabled), so it can inject code into every Electron/Node process launched from this environment. Remove it from your user/system environment variables unless you set it deliberately.`,
+      action: { kind: 'guidance', label: 'Remove from environment variables' },
+    });
   }
   return out;
 }

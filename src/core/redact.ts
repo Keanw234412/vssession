@@ -7,6 +7,8 @@ export interface RedactOptions {
   homeDir?: string;
   userName?: string;
   redactEmails?: boolean;
+  /** Phone numbers and WhatsApp ids (default true). */
+  redactPhones?: boolean;
   extraPatterns?: string[];
   /** Exact values known to be private (e.g. account/organization UUIDs of the session owner). */
   literals?: string[];
@@ -66,6 +68,26 @@ const BUILTIN_RULES: Rule[] = [
 
 const EMAIL_RE = /\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b/g;
 
+const digitCount = (s: string) => (s.match(/\d/g) ?? []).length;
+
+/**
+ * Phone numbers and messaging ids (customer data in support/CRM projects). Conservative on purpose:
+ * WhatsApp JIDs, "+<country>" numbers and Indonesian mobile numbers (08…, 628…), so ordinary
+ * long numbers (timestamps, ids, sizes) are left alone.
+ */
+const PHONE_RULES: Rule[] = [
+  { re: /\b\d{5,20}(?::\d{1,3})?@(?:s\.whatsapp\.net|c\.us|g\.us|lid|broadcast|newsletter)\b/g, replace: '[redacted:wa-id]' },
+  { re: /\btg:-?\d{5,20}\b/g, replace: '[redacted:tg-id]' },
+  {
+    re: /(?<![\w+])\+\d{1,3}(?:[ \-.]?\(?\d{1,5}\)?){2,6}(?!\d)/g,
+    replace: (m) => (digitCount(m) >= 8 && digitCount(m) <= 15 ? '[redacted:phone]' : m),
+  },
+  {
+    re: /(?<![\w+])(?:62|0)8\d{1,3}(?:[ \-.]?\d{2,5}){1,3}(?!\d)/g,
+    replace: (m) => (digitCount(m) >= 9 && digitCount(m) <= 15 ? '[redacted:phone]' : m),
+  },
+];
+
 function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -76,7 +98,7 @@ export class Redactor {
 
   constructor(private readonly opts: RedactOptions = {}) {
     this.rules = [];
-    for (const lit of opts.literals ?? []) {
+    for (const lit of new Set(opts.literals ?? [])) {
       if (typeof lit !== 'string' || lit.length < 8) continue;
       this.rules.push({ re: new RegExp(escapeRe(lit), 'gi'), replace: '[redacted:id]' });
       // Also catch shortened forms of a UUID (its first group identifies it in practice).
@@ -84,6 +106,7 @@ export class Redactor {
       if (uuid) this.rules.push({ re: new RegExp(`\\b${uuid[1]}(?:-[0-9a-f]{1,4})*`, 'gi'), replace: '[redacted:id]' });
     }
     this.rules.push(...BUILTIN_RULES);
+    if (opts.redactPhones ?? true) this.rules.push(...PHONE_RULES);
     for (const src of opts.extraPatterns ?? []) {
       try {
         this.rules.push({ re: new RegExp(src, 'g'), replace: '[redacted]' });

@@ -10,3 +10,4 @@ node_modules/**
 .vscode/**
 CONTRIBUTING.md
 CODE_OF_CONDUCT.md
+docs/**

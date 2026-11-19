@@ -2,20 +2,42 @@
   "name": "vssession",
   "displayName": "VsSession — Audit & Organization Claude Sessions",
   "description": "Audits VS Code / Claude Code hardening issues with one-click fixes, and shares Claude Code sessions inside organization projects via a shared folder.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "vssession",
   "license": "MIT",
-  "repository": { "type": "git", "url": "https://github.com/Keanw234412/vssession.git" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Keanw234412/vssession.git"
+  },
   "homepage": "https://github.com/Keanw234412/vssession#readme",
-  "bugs": { "url": "https://github.com/Keanw234412/vssession/issues" },
-  "keywords": ["claude", "claude-code", "ai", "team", "collaboration", "session sharing", "security", "audit", "electron", "anthropic"],
+  "bugs": {
+    "url": "https://github.com/Keanw234412/vssession/issues"
+  },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "ai",
+    "team",
+    "collaboration",
+    "session sharing",
+    "security",
+    "audit",
+    "electron",
+    "anthropic"
+  ],
   "engines": {
     "vscode": "^1.90.0"
   },
-  "categories": ["Other"],
+  "categories": [
+    "Other"
+  ],
   "main": "./out/src/extension.js",
-  "activationEvents": ["onStartupFinished"],
-  "extensionKind": ["ui"],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "extensionKind": [
+    "ui"
+  ],
   "capabilities": {
     "untrustedWorkspaces": {
       "supported": "limited",
@@ -25,35 +47,137 @@
   },
   "contributes": {
     "commands": [
-      { "command": "vssession.audit.run", "title": "Run Audit", "category": "VsSession", "icon": "$(shield)" },
-      { "command": "vssession.audit.fix", "title": "Apply Fix", "category": "VsSession", "icon": "$(wrench)" },
-      { "command": "vssession.audit.fixAll", "title": "Apply All Safe Fixes", "category": "VsSession", "icon": "$(checklist)" },
-      { "command": "vssession.audit.details", "title": "Show Finding Details", "category": "VsSession" },
-      { "command": "vssession.org.create", "title": "Create Organization in Shared Folder", "category": "VsSession", "icon": "$(organization)" },
-      { "command": "vssession.org.open", "title": "Open Existing Organization Folder", "category": "VsSession", "icon": "$(folder-opened)" },
-      { "command": "vssession.org.createProject", "title": "Create Organization Project", "category": "VsSession", "icon": "$(add)" },
-      { "command": "vssession.org.linkWorkspace", "title": "Link This Workspace to an Organization Project", "category": "VsSession", "icon": "$(link)" },
-      { "command": "vssession.org.unlinkWorkspace", "title": "Unlink This Workspace", "category": "VsSession" },
-      { "command": "vssession.org.publishSession", "title": "Share a Claude Session to the Linked Project", "category": "VsSession", "icon": "$(cloud-upload)" },
-      { "command": "vssession.org.publishAll", "title": "Share All Sessions of This Workspace", "category": "VsSession" },
-      { "command": "vssession.org.unpublishSession", "title": "Remove My Shared Session", "category": "VsSession", "icon": "$(trash)" },
-      { "command": "vssession.org.openSession", "title": "Open Shared Session", "category": "VsSession" },
-      { "command": "vssession.org.refresh", "title": "Refresh", "category": "VsSession", "icon": "$(refresh)" },
-      { "command": "vssession.org.enableAutoPublish", "title": "Enable Auto-Share for This Workspace…", "category": "VsSession" },
-      { "command": "vssession.org.disableAutoPublish", "title": "Disable Auto-Share for This Workspace", "category": "VsSession" },
-      { "command": "vssession.audit.undo", "title": "Undo Last Audit Fix", "category": "VsSession" },
-      { "command": "vssession.identity.export", "title": "Export Member Identity (copy id)", "category": "VsSession" },
-      { "command": "vssession.identity.import", "title": "Import Member Identity", "category": "VsSession" }
+      {
+        "command": "vssession.audit.run",
+        "title": "Run Audit",
+        "category": "VsSession",
+        "icon": "$(shield)"
+      },
+      {
+        "command": "vssession.audit.fix",
+        "title": "Apply Fix",
+        "category": "VsSession",
+        "icon": "$(wrench)"
+      },
+      {
+        "command": "vssession.audit.fixAll",
+        "title": "Apply All Safe Fixes",
+        "category": "VsSession",
+        "icon": "$(checklist)"
+      },
+      {
+        "command": "vssession.audit.details",
+        "title": "Show Finding Details",
+        "category": "VsSession"
+      },
+      {
+        "command": "vssession.org.create",
+        "title": "Create Organization in Shared Folder",
+        "category": "VsSession",
+        "icon": "$(organization)"
+      },
+      {
+        "command": "vssession.org.open",
+        "title": "Open Existing Organization Folder",
+        "category": "VsSession",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "vssession.org.createProject",
+        "title": "Create Organization Project",
+        "category": "VsSession",
+        "icon": "$(add)"
+      },
+      {
+        "command": "vssession.org.linkWorkspace",
+        "title": "Link This Workspace to an Organization Project",
+        "category": "VsSession",
+        "icon": "$(link)"
+      },
+      {
+        "command": "vssession.org.unlinkWorkspace",
+        "title": "Unlink This Workspace",
+        "category": "VsSession"
+      },
+      {
+        "command": "vssession.org.publishSession",
+        "title": "Share a Claude Session to the Linked Project",
+        "category": "VsSession",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "vssession.org.publishAll",
+        "title": "Share All Sessions of This Workspace",
+        "category": "VsSession"
+      },
+      {
+        "command": "vssession.org.unpublishSession",
+        "title": "Remove My Shared Session",
+        "category": "VsSession",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "vssession.org.openSession",
+        "title": "Open Shared Session",
+        "category": "VsSession"
+      },
+      {
+        "command": "vssession.org.refresh",
+        "title": "Refresh",
+        "category": "VsSession",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "vssession.org.enableAutoPublish",
+        "title": "Enable Auto-Share for This Workspace…",
+        "category": "VsSession"
+      },
+      {
+        "command": "vssession.org.disableAutoPublish",
+        "title": "Disable Auto-Share for This Workspace",
+        "category": "VsSession"
+      },
+      {
+        "command": "vssession.audit.undo",
+        "title": "Undo Last Audit Fix",
+        "category": "VsSession"
+      },
+      {
+        "command": "vssession.identity.export",
+        "title": "Export Member Identity (copy id)",
+        "category": "VsSession"
+      },
+      {
+        "command": "vssession.identity.import",
+        "title": "Import Member Identity",
+        "category": "VsSession"
+      },
+      {
+        "command": "vssession.org.syncNow",
+        "title": "Sync Organization Folder with Git Now",
+        "category": "VsSession",
+        "icon": "$(sync)"
+      }
     ],
     "viewsContainers": {
       "activitybar": [
-        { "id": "vssession", "title": "VsSession", "icon": "$(organization)" }
+        {
+          "id": "vssession",
+          "title": "VsSession",
+          "icon": "$(organization)"
+        }
       ]
     },
     "views": {
       "vssession": [
-        { "id": "vssession.org", "name": "Organization Projects" },
-        { "id": "vssession.audit", "name": "Audit" }
+        {
+          "id": "vssession.org",
+          "name": "Organization Projects"
+        },
+        {
+          "id": "vssession.audit",
+          "name": "Audit"
+        }
       ]
     },
     "viewsWelcome": [
@@ -68,22 +192,66 @@
     ],
     "menus": {
       "view/title": [
-        { "command": "vssession.audit.run", "when": "view == vssession.audit", "group": "navigation" },
-        { "command": "vssession.audit.fixAll", "when": "view == vssession.audit", "group": "navigation" },
-        { "command": "vssession.org.createProject", "when": "view == vssession.org && vssession.orgConfigured", "group": "navigation@1" },
-        { "command": "vssession.org.linkWorkspace", "when": "view == vssession.org && vssession.orgConfigured", "group": "navigation@2" },
-        { "command": "vssession.org.publishSession", "when": "view == vssession.org && vssession.workspaceLinked", "group": "navigation@3" },
-        { "command": "vssession.org.refresh", "when": "view == vssession.org", "group": "navigation@4" }
+        {
+          "command": "vssession.audit.run",
+          "when": "view == vssession.audit",
+          "group": "navigation"
+        },
+        {
+          "command": "vssession.audit.fixAll",
+          "when": "view == vssession.audit",
+          "group": "navigation"
+        },
+        {
+          "command": "vssession.org.createProject",
+          "when": "view == vssession.org && vssession.orgConfigured",
+          "group": "navigation@1"
+        },
+        {
+          "command": "vssession.org.linkWorkspace",
+          "when": "view == vssession.org && vssession.orgConfigured",
+          "group": "navigation@2"
+        },
+        {
+          "command": "vssession.org.publishSession",
+          "when": "view == vssession.org && vssession.workspaceLinked",
+          "group": "navigation@3"
+        },
+        {
+          "command": "vssession.org.refresh",
+          "when": "view == vssession.org",
+          "group": "navigation@4"
+        }
       ],
       "view/item/context": [
-        { "command": "vssession.audit.fix", "when": "view == vssession.audit && viewItem == finding-fixable", "group": "inline" },
-        { "command": "vssession.org.unpublishSession", "when": "view == vssession.org && viewItem == session-mine", "group": "inline" }
+        {
+          "command": "vssession.audit.fix",
+          "when": "view == vssession.audit && viewItem == finding-fixable",
+          "group": "inline"
+        },
+        {
+          "command": "vssession.org.unpublishSession",
+          "when": "view == vssession.org && viewItem == session-mine",
+          "group": "inline"
+        }
       ],
       "commandPalette": [
-        { "command": "vssession.audit.fix", "when": "false" },
-        { "command": "vssession.audit.details", "when": "false" },
-        { "command": "vssession.org.openSession", "when": "false" },
-        { "command": "vssession.org.unpublishSession", "when": "false" }
+        {
+          "command": "vssession.audit.fix",
+          "when": "false"
+        },
+        {
+          "command": "vssession.audit.details",
+          "when": "false"
+        },
+        {
+          "command": "vssession.org.openSession",
+          "when": "false"
+        },
+        {
+          "command": "vssession.org.unpublishSession",
+          "when": "false"
+        }
       ]
     },
     "configuration": {
@@ -101,14 +269,16 @@
           "scope": "machine",
           "description": "Name shown to other organization members. Defaults to your OS user name."
         },
-"vssession.publish.redactEmails": {
+        "vssession.publish.redactEmails": {
           "type": "boolean",
           "default": true,
           "description": "Replace e-mail addresses with [email] before sharing."
         },
         "vssession.publish.extraRedactPatterns": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [],
           "description": "Additional regular expressions whose matches are replaced with [redacted] before sharing."
         },
@@ -117,6 +287,38 @@
           "default": 15,
           "minimum": 5,
           "description": "Polling interval for changes in the shared folder (file events from sync clients are unreliable)."
+        },
+        "vssession.publish.redactPhoneNumbers": {
+          "type": "boolean",
+          "default": true,
+          "description": "Replace phone numbers (+country, Indonesian 08…/628…) and WhatsApp ids (…@s.whatsapp.net) with [redacted:phone] / [redacted:wa-id] before sharing."
+        },
+        "vssession.publish.maxSourceSizeMB": {
+          "type": "number",
+          "default": 25,
+          "minimum": 1,
+          "maximum": 500,
+          "description": "Largest Claude session file (MB) that can be shared. Large sessions are mostly tool output, which is clipped before sharing."
+        },
+        "vssession.org.gitSync": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "off"
+          ],
+          "default": "auto",
+          "scope": "machine",
+          "enumDescriptions": [
+            "When the organization folder is the top level of a git working tree (e.g. a dedicated branch checked out as a worktree), pull periodically and commit + push after every change made by VsSession.",
+            "Never run git; sync the folder yourself."
+          ],
+          "description": "Automatic git sync of the organization folder."
+        },
+        "vssession.org.gitPullIntervalSeconds": {
+          "type": "number",
+          "default": 60,
+          "minimum": 15,
+          "description": "How often to pull the organization folder when git sync is active."
         }
       }
     }

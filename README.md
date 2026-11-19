@@ -22,6 +22,10 @@ Your teammate solved the exact bug you're stuck on, in a Claude Code session, ye
 
 It also includes a **security audit** of your VS Code + Claude Code setup. The audit came out of reverse-engineering the shipped binaries, and it offers one-click, verified, undoable fixes.
 
+[![VsSession demo: Bob sees Alice's and his own shared Claude sessions](docs/demo.gif)](docs/demo.mp4)
+
+▶️ **[Watch the full 4-minute tutorial](docs/demo.mp4)** (Indonesian captions): creating an organization, sharing a session, a teammate joining, and the audit with safe fixes.
+
 ## ✨ Features
 
 ### 👥 Organization Projects: team-wide Claude sessions
@@ -30,7 +34,8 @@ It also includes a **security audit** of your VS Code + Claude Code setup. The a
 - **Share manually or automatically.**
   - *Manual:* a preview shows exactly what will be shared and where it goes.
   - *Automatic:* turned on per workspace, after explicit consent.
-- **Redaction before sharing.** Private keys (including keys split across messages), API tokens (Anthropic, OpenAI, GitHub, GitLab, Slack, Stripe, Google, AWS, npm, Hugging Face), JWTs, auth headers, URL credentials, `PASSWORD=`-style assignments, structured `{ "password": … }` fields, e-mails, home paths, your OS user name and your Claude account UUIDs are all removed.
+- **Redaction before sharing.** Private keys (including keys split across messages), API tokens (Anthropic, OpenAI, GitHub, GitLab, Slack, Stripe, Google, AWS, npm, Hugging Face), JWTs, auth headers, URL credentials, `PASSWORD=`-style assignments, structured `{ "password": … }` fields, e-mails, phone numbers (+country, Indonesian 08…/628…), WhatsApp and Telegram ids, home paths, your OS user name and your Claude account UUIDs are all removed.
+- **Git branch as the shared folder.** Keep the organization on a dedicated branch of the repo your team already uses (checked out as a git worktree). VsSession pulls every minute and commits + pushes after each share, retrying once after a rebase. It never force-pushes and refuses to touch a folder that is part of a code checkout.
 - **Safe on sync folders.**
   - Each device writes only to its own folder, so sync clients never see conflicting writes.
   - Each published version is an immutable file with a content hash; half-synced files are ignored and the last valid version stays visible.
@@ -55,7 +60,7 @@ The full write-up is in [AUDIT.md](AUDIT.md). Every finding is labelled as obser
 
 ```bash
 # grab the latest .vsix from Releases, then:
-code --install-extension vssession-0.1.0.vsix
+code --install-extension vssession-0.2.0.vsix
 ```
 
 1. Open the **VsSession** icon in the Activity Bar.
@@ -63,6 +68,17 @@ code --install-extension vssession-0.1.0.vsix
 3. **Organization Projects → Create Organization** and pick a folder your team already shares.
 4. Open your project, run **Link This Workspace**, then **Share a Claude Session**.
 5. Teammates run **Open Existing Organization** on the same folder. Their sessions and yours show up side by side.
+
+### Share through a branch of your existing repo
+
+```bash
+# once, by whoever sets it up (inside your project clone)
+git worktree add --orphan -b vssession ../myproject-vssession
+# everyone else
+git fetch origin vssession && git worktree add ../myproject-vssession vssession
+```
+
+Point **Create Organization** (first member) or **Open Existing Organization** (everyone else) at `../myproject-vssession`. Add a `.gitattributes` with `* -text` there so revision files stay byte-identical on every OS. Sync status sits in the status bar; click it to sync now.
 
 ## 🧠 How it works
 
@@ -86,7 +102,7 @@ flowchart LR
 
 ```bash
 npm install
-npm test          # tsc + 48 node:test tests (no VS Code needed)
+npm test          # tsc + node:test suite (no VS Code needed)
 npm run package   # builds the .vsix
 ```
 

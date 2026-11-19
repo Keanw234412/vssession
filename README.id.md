@@ -7,6 +7,10 @@ Ekstensi VS Code dengan dua fitur:
 1. **Audit**: memeriksa hardening VS Code/Electron dan setup Claude Code, lalu menawarkan perbaikan yang aman (lihat file `AUDIT.md`).
 2. **Organization Projects**: sesi Claude Code dibagikan dalam satu organisasi. Struktur tampilannya *Organisasi > Proyek > Anggota > Sesi*: sesi tiap anggota terpisah, tetapi semua anggota organisasi bisa melihatnya.
 
+[![Demo VsSession](docs/demo.gif)](docs/demo.mp4)
+
+▶️ **[Tonton video tutorial lengkap (4 menit)](docs/demo.mp4)**: membuat organisasi, membagikan sesi, anggota lain bergabung, dan audit beserta perbaikan otomatis.
+
 ## Instalasi
 
 ```powershell
@@ -32,6 +36,16 @@ Buka ikon **VsSession** di Activity Bar, lalu pilih **Audit → Run Audit**.
 2. `VsSession: Create Organization in Shared Folder`, lalu pilih folder dan isi nama organisasi.
 3. Bagikan folder itu ke anggota. **Akses ke folder adalah kontrol akses organisasi.** Siapa pun yang bisa membaca folder bisa melihat semua sesi di dalamnya.
 
+### Pakai branch di repo yang sama (git)
+Organisasi bisa disimpan di branch khusus (misalnya `vssession`) di repo tim yang sudah ada, di-checkout sebagai git worktree terpisah:
+```bash
+# sekali, oleh yang menyiapkan (di dalam clone proyek)
+git worktree add --orphan -b vssession ../proyek-vssession
+# anggota lain
+git fetch origin vssession && git worktree add ../proyek-vssession vssession
+```
+VsSession otomatis `pull` tiap menit dan `commit` + `push` setiap kali sesi dibagikan (tanpa force-push). Sinkronisasi hanya aktif jika folder organisasi adalah root worktree sendiri, jadi checkout kode tidak pernah tersentuh. Status ada di status bar; klik untuk sinkron sekarang.
+
 ### Untuk setiap anggota
 1. `VsSession: Open Existing Organization Folder` lalu pilih folder bersama. Untuk OneDrive, set folder ke *Always keep on this device*.
 2. Buka folder proyek, lalu `Link This Workspace to an Organization Project` (pilih proyek atau buat baru).
@@ -42,7 +56,7 @@ Buka ikon **VsSession** di Activity Bar, lalu pilih **Audit → Run Audit**.
 ### Apa yang dibagikan
 - Prompt, balasan Claude, nama tool beserta input/output yang dipotong.
 - **Tidak** dibagikan: blok thinking, signature, account/organization UUID, field `cwd`.
-- Redaksi diterapkan ke semua string sebelum dipotong: private key, token API (Anthropic, OpenAI, GitHub, GitLab, Slack, Stripe, Google, AWS, npm, HF), JWT, header Authorization, kredensial di URL, assignment `*_SECRET=`/`PASSWORD=` dan sejenisnya, email, path home, serta nama user. Pola tambahan bisa diatur lewat `vssession.publish.extraRedactPatterns`. **Redaksi bersifat best-effort**, jadi review sesi sensitif sebelum dibagikan.
+- Redaksi diterapkan ke semua string sebelum dipotong: private key, token API (Anthropic, OpenAI, GitHub, GitLab, Slack, Stripe, Google, AWS, npm, HF), JWT, header Authorization, kredensial di URL, assignment `*_SECRET=`/`PASSWORD=` dan sejenisnya, email, nomor telepon (+kode negara, 08…/628…), ID WhatsApp dan Telegram, path home, serta nama user. Pola tambahan bisa diatur lewat `vssession.publish.extraRedactPatterns`. **Redaksi bersifat best-effort**, jadi review sesi sensitif sebelum dibagikan.
 - Sesi yang juga berjalan di luar folder workspace, tidak punya info `cwd`, atau memiliki record rusak **tidak pernah** dibagikan otomatis. Sesi seperti itu hanya bisa dibagikan manual setelah review.
 
 ### Struktur folder bersama

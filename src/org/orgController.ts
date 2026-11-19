@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { findProjectDirForCwd, listSessionFiles, longPath, parseRecords, splitCompleteRecords, type LocalSession } from '../core/claudeSessions';
 import { OrgStore, OrgStoreError, type DeviceHead, type MemberInfo, type ProjectInfo, type SessionHead } from '../core/orgStore';
+import { GitSync } from '../core/gitSync';
 import { prepareSession, SourceTooLargeError } from '../core/publish';
 import { Redactor } from '../core/redact';
 import { getIdentity } from './identity';
@@ -43,6 +44,13 @@ export class OrgController implements vscode.TreeDataProvider<Node>, vscode.Disp
   private readonly lastAutoMtime = new Map<string, number>();
   private readonly autoRetry = new Map<string, { attempts: number; nextAt: number }>();
   private autoScanTimer: NodeJS.Timeout | undefined;
+  private git: GitSync | undefined;
+  private gitRoot: string | undefined;
+  private gitStatus: vscode.StatusBarItem | undefined;
+  private gitPushTimer: NodeJS.Timeout | undefined;
+  private lastPull = 0;
+  private pulling = false;
+  private lastGitError = '';
 
   constructor(private readonly context: vscode.ExtensionContext) {}
 
@@ -60,7 +68,11 @@ export class OrgController implements vscode.TreeDataProvider<Node>, vscode.Disp
     reg('vssession.org.publishAll', () => this.cmdPublishAll());
     reg('vssession.org.unpublishSession', (n: Node) => this.cmdUnpublish(n));
     reg('vssession.org.openSession', (n: Node, pinned?: boolean) => n?.type === 'session' && showTranscript(n.head.latest, n.member.displayName, pinned === true));
-    reg('vssession.org.refresh', () => this.reload());
+    reg('vssession.org.refresh', () => {
+      this.reload();
+      void this.gitPull(true);
+    });
+    reg('vssession.org.syncNow', () => this.cmdSyncNow());
     reg('vssession.org.enableAutoPublish', () => this.cmdEnableAuto());
     reg('vssession.org.disableAutoPublish', () => this.cmdDisableAuto());
     c.subscriptions.push(
@@ -78,6 +90,8 @@ export class OrgController implements vscode.TreeDataProvider<Node>, vscode.Disp
     if (this.pollTimer) clearInterval(this.pollTimer);
     if (this.autoScanTimer) clearInterval(this.autoScanTimer);
     if (this.refreshDebounce) clearTimeout(this.refreshDebounce);
+    if (this.gitPushTimer) clearTimeout(this.gitPushTimer);
+    this.gitStatus?.dispose();
     for (const t of this.publishDebounce.values()) clearTimeout(t);
     this.rootWatcher?.close();
     this.sessionWatcher?.close();
@@ -142,7 +156,9 @@ export class OrgController implements vscode.TreeDataProvider<Node>, vscode.Disp
       // An organization that was offline at startup (share down, not yet synced) recovers by itself.
       if (!this.store && this.rootPath() && new OrgStore(this.rootPath()).readOrg()) this.reload();
       else this.refreshView();
+      void this.gitPull(false);
     }, secs * 1000);
+    void this.setupGit(root);
     this.setupAutoPublish();
     this.refreshView();
   }
@@ -290,6 +306,7 @@ export class OrgController implements vscode.TreeDataProvider<Node>, vscode.Disp
       homeDir: os.homedir(),
       userName,
       redactEmails: cfg.get<boolean>('publish.redactEmails', true),
+      redactPhones: cfg.get<boolean>('publish.redactPhoneNumbers', true),
       extraPatterns: cfg.get<string[]>('publish.extraRedactPatterns', []),
     });
   }
@@ -314,6 +331,126 @@ export class OrgController implements vscode.TreeDataProvider<Node>, vscode.Disp
     }
   }
 
+  private maxSourceBytes(): number {
+    const mb = vscode.workspace.getConfiguration('vssession').get<number>('publish.maxSourceSizeMB', 25);
+    return Math.min(500, Math.max(1, Number.isFinite(mb) ? mb : 25)) * 1024 * 1024;
+  }
+
+  // ---------------------------------------------------------------- git sync
+  private gitEnabled(): boolean {
+    return vscode.workspace.getConfiguration('vssession').get<string>('org.gitSync', 'auto') !== 'off';
+  }
+
+  private async setupGit(root: string): Promise<void> {
+    if (!root || !this.gitEnabled() || vscode.env.remoteName) {
+      this.git = undefined;
+      this.gitRoot = undefined;
+      this.showGitStatus(undefined);
+      return;
+    }
+    if (this.git && this.gitRoot === root) return;
+    const r = await GitSync.detect(root);
+    if (this.rootPath() !== root) return; // settings changed meanwhile
+    this.gitRoot = root;
+    this.git = r instanceof GitSync ? r : undefined;
+    if (!this.git) {
+      this.showGitStatus(undefined);
+      return;
+    }
+    this.showGitStatus('$(sync) VsSession', 'Organization folder is synced with git');
+    void this.gitPull(true);
+  }
+
+  private showGitStatus(text: string | undefined, tooltip?: string): void {
+    if (!text) {
+      this.gitStatus?.hide();
+      return;
+    }
+    if (!this.gitStatus) {
+      this.gitStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 0);
+      this.gitStatus.command = 'vssession.org.syncNow';
+    }
+    this.gitStatus.text = text;
+    this.gitStatus.tooltip = tooltip;
+    this.gitStatus.show();
+  }
+
+  private reportGit(ok: boolean, detail: string): void {
+    const time = new Date().toLocaleTimeString();
+    if (ok) {
+      this.lastGitError = '';
+      this.showGitStatus('$(check) VsSession', `Organization folder synced with git (${time}). Click to sync now.`);
+      return;
+    }
+    this.showGitStatus('$(warning) VsSession', `Git sync failed (${time}): ${detail}. Click to retry.`);
+    if (detail !== this.lastGitError) {
+      this.lastGitError = detail;
+      void vscode.window.showWarningMessage(`VsSession could not sync the organization folder: ${detail}`, 'Retry').then((pick) => {
+        if (pick) void this.cmdSyncNow();
+      });
+    }
+  }
+
+  private async gitPull(force: boolean): Promise<void> {
+    const git = this.git;
+    if (!git || this.pulling) return;
+    const every = Math.max(15, vscode.workspace.getConfiguration('vssession').get<number>('org.gitPullIntervalSeconds', 60)) * 1000;
+    if (!force && Date.now() - this.lastPull < every) return;
+    this.pulling = true;
+    this.lastPull = Date.now();
+    try {
+      const r = await git.pull();
+      this.reportGit(r.ok, r.detail);
+      if (r.ok && r.changed) {
+        if (!this.store) this.reload();
+        else this.refreshView();
+      }
+    } finally {
+      this.pulling = false;
+    }
+  }
+
+  /** Commit + push shortly after VsSession wrote to the organization folder (batched). */
+  private afterWrite(what: string, root?: string): void {
+    if (!this.gitEnabled()) return;
+    if (this.gitPushTimer) clearTimeout(this.gitPushTimer);
+    this.gitPushTimer = setTimeout(async () => {
+      this.gitPushTimer = undefined;
+      const dir = root ?? this.store?.root ?? this.rootPath();
+      if (!dir) return;
+      if (!this.git || path.resolve(this.git.root) !== path.resolve(dir)) await this.setupGit(dir);
+      const git = this.git;
+      if (!git) return;
+      const me = getIdentity(this.context);
+      this.showGitStatus('$(sync~spin) VsSession', 'Pushing to git…');
+      const r = await git.commitAndPush(`vssession: ${what} (${me.displayName})`);
+      this.reportGit(r.ok, r.detail);
+    }, 2000);
+  }
+
+  private async cmdSyncNow(): Promise<void> {
+    const root = this.store?.root ?? this.rootPath();
+    if (!root) {
+      vscode.window.showWarningMessage('Configure an organization folder first.');
+      return;
+    }
+    if (!this.git) await this.setupGit(root);
+    const git = this.git;
+    if (!git) {
+      const r = await GitSync.detect(root);
+      vscode.window.showWarningMessage(`Git sync is not active: ${r instanceof GitSync ? 'disabled in settings (vssession.org.gitSync)' : r.reason}.`);
+      return;
+    }
+    this.showGitStatus('$(sync~spin) VsSession', 'Syncing…');
+    const pulled = await git.pull();
+    const pushed = pulled.ok ? await git.commitAndPush(`vssession: sync (${getIdentity(this.context).displayName})`) : pulled;
+    this.reportGit(pushed.ok, pushed.detail);
+    if (pushed.ok) {
+      this.lastPull = Date.now();
+      this.reload();
+    }
+  }
+
   // ---------------------------------------------------------------- commands
   private async cmdCreateOrg(): Promise<void> {
     const pick = await vscode.window.showOpenDialog({ canSelectFolders: true, canSelectFiles: false, openLabel: 'Use as organization folder', title: 'Pick a folder that is shared with all members (OneDrive/SharePoint, network share, git repo)' });
@@ -322,6 +459,7 @@ export class OrgController implements vscode.TreeDataProvider<Node>, vscode.Disp
     if (!name) return;
     try {
       OrgStore.create(pick[0].fsPath, name);
+      this.afterWrite('create organization', pick[0].fsPath);
       await vscode.workspace.getConfiguration('vssession').update('org.rootPath', pick[0].fsPath, vscode.ConfigurationTarget.Global);
       vscode.window.showInformationMessage(`Organization "${name}" created. Share this folder with every member; access to the folder is the access control.`);
     } catch (e) {
@@ -347,6 +485,7 @@ export class OrgController implements vscode.TreeDataProvider<Node>, vscode.Disp
     const name = await vscode.window.showInputBox({ prompt: 'Project name', validateInput: (v) => (v.trim() ? undefined : 'Required') });
     if (!name) return undefined;
     const p = g.store.createProject(name);
+    this.afterWrite('create project');
     this.refreshView();
     return p;
   }
@@ -370,6 +509,7 @@ export class OrgController implements vscode.TreeDataProvider<Node>, vscode.Disp
     await this.context.workspaceState.update(LINK_KEY, link);
     const me = getIdentity(this.context);
     g.store.upsertMember(project.projectId, me.memberId, me.displayName);
+    this.afterWrite('join project');
     this.reload();
     const next = await vscode.window.showInformationMessage(`Linked to "${project.name}". Nothing is shared until you share a session or enable auto-share.`, 'Share a session', 'Enable auto-share…');
     if (next === 'Share a session') await this.cmdPublishOne();
@@ -399,7 +539,7 @@ export class OrgController implements vscode.TreeDataProvider<Node>, vscode.Disp
     const link = g.link!;
     const ws = this.workspaceDir();
     if (!ws) throw new OrgStoreError('The linked workspace folder is no longer open in this window.');
-    const prepared = prepareSession(s.file, ws, this.redactor());
+    const prepared = prepareSession(s.file, ws, this.redactor(), this.maxSourceBytes());
     if (mode === 'auto' && !prepared.eligibility.autoOk) {
       if (!this.autoSkipped.has(s.sessionId)) {
         this.autoSkipped.add(s.sessionId);
@@ -425,6 +565,7 @@ export class OrgController implements vscode.TreeDataProvider<Node>, vscode.Disp
     const me = getIdentity(this.context);
     dest.store.upsertMember(dest.link.projectId, me.memberId, me.displayName);
     const r = dest.store.publish({ projectId: dest.link.projectId, memberId: me.memberId, deviceId: me.deviceId, sessionId: prepared.sessionId, summary: prepared.summary, items: prepared.items });
+    this.afterWrite('share session');
     return r.unchanged ? 'unchanged' : 'published';
   }
 
@@ -470,7 +611,7 @@ export class OrgController implements vscode.TreeDataProvider<Node>, vscode.Disp
     if (!ws) return;
     for (const s of sessions) {
       try {
-        const prepared = prepareSession(s.file, ws, this.redactor());
+        const prepared = prepareSession(s.file, ws, this.redactor(), this.maxSourceBytes());
         if (!prepared.eligibility.autoOk) {
           tally.skipped++;
           continue;
@@ -488,6 +629,7 @@ export class OrgController implements vscode.TreeDataProvider<Node>, vscode.Disp
         tally.failed++;
       }
     }
+    this.afterWrite('share sessions');
     this.refreshView();
     vscode.window.showInformationMessage(`Shared ${tally.published}, unchanged ${tally.unchanged}, skipped ${tally.skipped} (needs review), failed ${tally.failed}.`);
   }
@@ -505,6 +647,7 @@ export class OrgController implements vscode.TreeDataProvider<Node>, vscode.Disp
     );
     if (ok !== 'Remove') return;
     g.store.unpublish(n.project.projectId, me.memberId, me.deviceId, n.head.sessionId);
+    this.afterWrite('remove session');
     this.refreshView();
   }
 

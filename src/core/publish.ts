@@ -83,10 +83,11 @@ export function prepareSession(file: string, workspaceDir: string, redactor: Red
   const { records, malformed, droppedTail } = splitCompleteRecords(text);
   const eligibility = assessEligibility(records, workspaceDir, malformed, droppedTail);
   // Owner identifiers can also appear inside tool output (e.g. a printed session file).
-  const ownerIds = records
+  // Deduplicated: long sessions repeat the owner record hundreds of times.
+  const ownerIds = [...new Set(records
     .filter((r) => r.type === 'session-owner')
     .flatMap((r) => [r.accountUuid, r.organizationUuid])
-    .filter((x): x is string => typeof x === 'string');
+    .filter((x): x is string => typeof x === 'string'))];
   if (ownerIds.length) redactor = redactor.withLiterals(ownerIds);
 
   // Drop fields that must never leave the machine, then redact every remaining string.
