@@ -1,0 +1,12 @@
+src/**
+test/**
+out/test/**
+**/*.map
+**/*.ts
+tsconfig.json
+node_modules/**
+.gitignore
+.github/**
+.vscode/**
+CONTRIBUTING.md
+CODE_OF_CONDUCT.md
